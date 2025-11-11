@@ -26,7 +26,6 @@ class GoogleSheetsManager:
     
     def get_credentials(self):
         try:
-            # For Streamlit Cloud, use secrets.toml
             if 'google_credentials' in st.secrets:
                 creds_dict = dict(st.secrets['google_credentials'])
                 creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
@@ -44,17 +43,13 @@ class GoogleSheetsManager:
             if not gc:
                 return []
             
-            # Open the spreadsheet
             spreadsheet = gc.open(SPREADSHEET_NAME)
             worksheet = spreadsheet.sheet1
-            
-            # Get all records
             records = worksheet.get_all_records()
             
-            # Convert empty strings to None and ensure proper structure
             formatted_records = []
             for record in records:
-                if any(record.values()):  # Only add non-empty records
+                if any(record.values()):
                     formatted_record = {
                         "description": record.get("description", ""),
                         "building": record.get("building", ""),
@@ -69,10 +64,7 @@ class GoogleSheetsManager:
             return formatted_records
             
         except gspread.SpreadsheetNotFound:
-            st.error(f"Spreadsheet '{SPREADSHEET_NAME}' not found. Please create it and share with your service account.")
-            return []
-        except gspread.exceptions.APIError as e:
-            st.error(f"Google Sheets API error: {e}")
+            st.error(f"Spreadsheet '{SPREADSHEET_NAME}' not found.")
             return []
         except Exception as e:
             st.error(f"Error loading tasks: {str(e)}")
@@ -87,15 +79,12 @@ class GoogleSheetsManager:
             spreadsheet = gc.open(SPREADSHEET_NAME)
             worksheet = spreadsheet.sheet1
             
-            # Clear existing data
             worksheet.clear()
             
             if tasks:
-                # Create headers
                 headers = ["description", "building", "tcd", "comments", "category", "last_updated", "closed"]
                 worksheet.append_row(headers)
                 
-                # Add data rows
                 for task in tasks:
                     row = [
                         task.get("description", ""),
@@ -137,7 +126,7 @@ class GoogleSheetsManager:
 
 def main():
     st.set_page_config(page_title="Enhanced Task Manager", layout="wide")
-    st.title("📋 Enhanced Task Manager - Cloud Sync")
+    st.title("📋 Enhanced Task Manager")
     
     # Initialize session state
     if 'task_manager' not in st.session_state:
@@ -149,62 +138,33 @@ def main():
     
     task_manager = st.session_state.task_manager
     
-    # Debug info (remove in production)
-    with st.sidebar:
-        st.header("Debug Info")
-        st.write(f"Tasks loaded: {len(task_manager.tasks)}")
-        if st.button("Reload Data"):
-            st.session_state.task_manager.tasks = st.session_state.task_manager.load_tasks()
-            st.rerun()
+    # Top Form Section (Like your tkinter top frame)
+    st.header("Task Entry Form")
     
-    # Sidebar for filters
-    with st.sidebar:
-        st.header("Filters & Stats")
-        st.session_state.current_category = st.selectbox(
-            "View Category:",
-            options=list(CATEGORIES.keys()),
-            index=list(CATEGORIES.keys()).index(st.session_state.current_category)
-        )
+    with st.container():
+        col1, col2 = st.columns(2)
         
-        # Category statistics
-        st.subheader("Task Statistics")
-        category_counts = {cat: 0 for cat in CATEGORIES.keys() if cat != "All"}
-        for task in task_manager.tasks:
-            if task["category"] in category_counts:
-                category_counts[task["category"]] += 1
+        with col1:
+            description = st.text_input("Description*", 
+                                      value=st.session_state.get('edit_description', ''),
+                                      placeholder="Enter task description")
+            building = st.selectbox("Building", BUILDINGS, 
+                                  index=BUILDINGS.index(st.session_state.get('edit_building', BUILDINGS[0])) 
+                                  if st.session_state.get('edit_building') in BUILDINGS else 0)
         
-        for cat, count in category_counts.items():
-            color = CATEGORIES[cat]
-            st.markdown(f"<span style='color: {color}; font-weight: bold;'>{cat}: {count}</span>", 
-                       unsafe_allow_html=True)
-        
-        st.markdown(f"**Total Tasks: {len(task_manager.tasks)}**")
-
-    # Main content area
-    st.header("Task Form")
+        with col2:
+            tcd = st.text_input("TCD", value=st.session_state.get('edit_tcd', ''), placeholder="TCD")
+            comments = st.text_input("Comments", value=st.session_state.get('edit_comments', ''), placeholder="Additional comments")
     
-    # Input fields
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
-        description = st.text_input("Description*", 
-                                  value=st.session_state.get('edit_description', ''))
-        building = st.selectbox("Building", BUILDINGS, 
-                              index=BUILDINGS.index(st.session_state.get('edit_building', BUILDINGS[0])) 
-                              if st.session_state.get('edit_building') in BUILDINGS else 0)
-        tcd = st.text_input("TCD", value=st.session_state.get('edit_tcd', ''))
-    
-    with col2:
-        comments = st.text_input("Comments", value=st.session_state.get('edit_comments', ''))
         category = st.selectbox("Category", 
                               [cat for cat in CATEGORIES.keys() if cat != "All"],
                               index=list(CATEGORIES.keys()).index(st.session_state.get('edit_category', 'OT')) 
                               if st.session_state.get('edit_category') in CATEGORIES else 8)
     
-    # Action buttons
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
+    with col2:
         button_label = "✅ Update Task" if st.session_state.selected_index is not None else "➕ Add Task"
         if st.button(button_label, use_container_width=True):
             if not description.strip():
@@ -221,87 +181,115 @@ def main():
                 }
                 
                 if task_manager.add_or_update_task(task_data, st.session_state.selected_index):
-                    st.success("Task saved successfully! Synced to cloud.")
+                    st.success("Task saved successfully!")
                     clear_edit_state()
                     st.rerun()
-                else:
-                    st.error("Error saving task to cloud.")
-    
-    with col2:
-        if st.session_state.selected_index is not None:
-            if st.button("❌ Cancel Edit", use_container_width=True):
-                clear_edit_state()
-                st.rerun()
     
     with col3:
-        if st.session_state.selected_index is not None:
-            if st.button("🗑️ Delete Selected Task", use_container_width=True):
-                if task_manager.delete_task(st.session_state.selected_index):
-                    st.success("Task deleted successfully! Synced to cloud.")
-                    clear_edit_state()
-                    st.rerun()
-                else:
-                    st.error("Error deleting task from cloud.")
+        col3a, col3b = st.columns(2)
+        with col3a:
+            if st.session_state.selected_index is not None:
+                if st.button("🗑️ Delete", use_container_width=True):
+                    if task_manager.delete_task(st.session_state.selected_index):
+                        st.success("Task deleted!")
+                        clear_edit_state()
+                        st.rerun()
+        with col3b:
+            if st.button("🧹 Clear", use_container_width=True):
+                clear_edit_state()
+                st.rerun()
+
+    # Category Filter (Like your tkinter category filter bar)
+    st.header("Task View")
     
-    # Clear form button
-    if st.button("🧹 Clear Form", use_container_width=True):
-        clear_edit_state()
-        st.rerun()
+    col1, col2, col3 = st.columns([1, 2, 1])
     
-    # Display tasks
-    st.header("Task List")
+    with col1:
+        st.session_state.current_category = st.selectbox(
+            "View Category:",
+            options=list(CATEGORIES.keys()),
+            index=list(CATEGORIES.keys()).index(st.session_state.current_category)
+        )
     
-    # Filter tasks based on current category
+    with col3:
+        st.metric("Total Tasks", len(task_manager.tasks))
+    
+    # Task List Display (Like your tkinter treeview)
     filtered_tasks = [
         task for task in task_manager.tasks 
         if st.session_state.current_category == "All" or task["category"] == st.session_state.current_category
     ]
     
     if filtered_tasks:
+        # Create a table-like display
+        st.subheader(f"Tasks ({len(filtered_tasks)} found)")
+        
+        # Display as a table with colored categories
         for i, task in enumerate(filtered_tasks):
-            task_key = f"{task['description']}_{task['building']}_{task['category']}"
-            
-            col1, col2, col3, col4, col5, col6, col7 = st.columns([0.5, 2, 1, 1, 2, 1, 1.5])
-            
-            with col1:
-                if st.button("📝", key=f"edit_{task_key}"):
-                    actual_index = None
-                    for j, t in enumerate(task_manager.tasks):
-                        if (t["description"] == task["description"] and 
-                            t["building"] == task["building"] and 
-                            t["category"] == task["category"]):
-                            actual_index = j
-                            break
-                    
-                    if actual_index is not None:
-                        set_edit_state(task, actual_index)
-                        st.rerun()
-            
-            with col2:
-                st.write(task["description"])
-            
-            with col3:
-                st.write(task["building"])
-            
-            with col4:
-                st.write(task.get("tcd", "") or "-")
-            
-            with col5:
-                st.write(task.get("comments", "") or "-")
-            
-            with col6:
+            # Create a card for each task
+            with st.container():
                 color = CATEGORIES.get(task["category"], "#FFFFFF")
-                st.markdown(
-                    f"<span style='background-color: {color}; padding: 2px 8px; border-radius: 4px;'>{task['category']}</span>",
-                    unsafe_allow_html=True
-                )
-            
-            with col7:
-                st.write(task.get("last_updated", ""))
-            
-            st.divider()
+                
+                col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+                
+                with col1:
+                    st.write(f"**{task['description']}**")
+                    if task.get('comments'):
+                        st.caption(f"💬 {task['comments']}")
+                
+                with col2:
+                    st.write(f"🏢 {task['building']}")
+                    if task.get('tcd'):
+                        st.caption(f"📅 {task['tcd']}")
+                
+                with col3:
+                    st.markdown(
+                        f"<span style='background-color: {color}; padding: 4px 8px; border-radius: 4px; font-size: 12px;'>{task['category']}</span>",
+                        unsafe_allow_html=True
+                    )
+                
+                with col4:
+                    if st.button("Edit", key=f"edit_{i}"):
+                        actual_index = None
+                        for j, t in enumerate(task_manager.tasks):
+                            if (t["description"] == task["description"] and 
+                                t["building"] == task["building"] and 
+                                t["category"] == task["category"]):
+                                actual_index = j
+                                break
+                        
+                        if actual_index is not None:
+                            set_edit_state(task, actual_index)
+                            st.rerun()
+                    
+                    st.caption(task.get('last_updated', ''))
+                
+                st.divider()
     else:
         st.info("No tasks found for the selected category.")
+    
+    # Statistics in Sidebar (Like your tkinter count labels)
+    with st.sidebar:
+        st.header("📊 Statistics")
+        
+        category_counts = {cat: 0 for cat in CATEGORIES.keys() if cat != "All"}
+        for task in task_manager.tasks:
+            if task["category"] in category_counts:
+                category_counts[task["category"]] += 1
+        
+        for cat, count in category_counts.items():
+            color = CATEGORIES[cat]
+            if count > 0:
+                st.markdown(
+                    f"<span style='color: {color}; font-weight: bold;'>● {cat}: {count}</span>",
+                    unsafe_allow_html=True
+                )
+        
+        st.metric("Total Tasks", len(task_manager.tasks))
+        
+        if st.button("🔄 Refresh Data"):
+            st.session_state.task_manager.tasks = st.session_state.task_manager.load_tasks()
+            st.rerun()
 
 def clear_edit_state():
     st.session_state.selected_index = None
