@@ -10,7 +10,7 @@ SCOPE = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets"
 ]
-SPREADSHEET_NAME = "TaskManagerDB"
+SPREADSHEET_NAME = "CMTask-ManagerDB"
 
 CATEGORIES = {
     "APV": "#90ee90", "UAPV": "#d2b48c", "EV": "#ffb6c1", "KPI": "#d3d3d3",
