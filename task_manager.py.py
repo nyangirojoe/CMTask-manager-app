@@ -5,7 +5,11 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # Google Sheets setup
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+SCOPE = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/spreadsheets"
+]
 SPREADSHEET_NAME = "TaskManagerDB"
 
 CATEGORIES = {
@@ -21,57 +25,115 @@ class GoogleSheetsManager:
         self.tasks = self.load_tasks()
     
     def get_credentials(self):
-        # For Streamlit Cloud, use secrets.toml
-        if 'google_credentials' in st.secrets:
-            creds_dict = dict(st.secrets['google_credentials'])
-            creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
-        else:
-            # For local development with JSON file
-            creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPE)
-        return gspread.authorize(creds)
+        try:
+            # For Streamlit Cloud, use secrets.toml
+            if 'google_credentials' in st.secrets:
+                creds_dict = dict(st.secrets['google_credentials'])
+                creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPE)
+                return gspread.authorize(creds)
+            else:
+                st.error("Google credentials not found in secrets")
+                return None
+        except Exception as e:
+            st.error(f"Error getting credentials: {e}")
+            return None
     
     def load_tasks(self):
         try:
             gc = self.get_credentials()
+            if not gc:
+                return []
+            
+            # Open the spreadsheet
             spreadsheet = gc.open(SPREADSHEET_NAME)
             worksheet = spreadsheet.sheet1
             
+            # Get all records
             records = worksheet.get_all_records()
-            return records if records else []
+            
+            # Convert empty strings to None and ensure proper structure
+            formatted_records = []
+            for record in records:
+                if any(record.values()):  # Only add non-empty records
+                    formatted_record = {
+                        "description": record.get("description", ""),
+                        "building": record.get("building", ""),
+                        "tcd": record.get("tcd", ""),
+                        "comments": record.get("comments", ""),
+                        "category": record.get("category", "OT"),
+                        "last_updated": record.get("last_updated", ""),
+                        "closed": record.get("closed", False)
+                    }
+                    formatted_records.append(formatted_record)
+            
+            return formatted_records
+            
+        except gspread.SpreadsheetNotFound:
+            st.error(f"Spreadsheet '{SPREADSHEET_NAME}' not found. Please create it and share with your service account.")
+            return []
+        except gspread.exceptions.APIError as e:
+            st.error(f"Google Sheets API error: {e}")
+            return []
         except Exception as e:
-            st.error(f"Error loading tasks: {e}")
+            st.error(f"Error loading tasks: {str(e)}")
             return []
     
     def save_tasks(self, tasks):
         try:
             gc = self.get_credentials()
+            if not gc:
+                return False
+            
             spreadsheet = gc.open(SPREADSHEET_NAME)
             worksheet = spreadsheet.sheet1
             
-            # Clear and update worksheet
+            # Clear existing data
             worksheet.clear()
             
             if tasks:
-                # Convert to DataFrame for easy handling
-                df = pd.DataFrame(tasks)
-                worksheet.update([df.columns.values.tolist()] + df.values.tolist())
+                # Create headers
+                headers = ["description", "building", "tcd", "comments", "category", "last_updated", "closed"]
+                worksheet.append_row(headers)
+                
+                # Add data rows
+                for task in tasks:
+                    row = [
+                        task.get("description", ""),
+                        task.get("building", ""),
+                        task.get("tcd", ""),
+                        task.get("comments", ""),
+                        task.get("category", "OT"),
+                        task.get("last_updated", ""),
+                        task.get("closed", False)
+                    ]
+                    worksheet.append_row(row)
+            
             return True
+            
         except Exception as e:
-            st.error(f"Error saving tasks: {e}")
+            st.error(f"Error saving tasks: {str(e)}")
             return False
     
     def add_or_update_task(self, task_data, selected_index=None):
-        if selected_index is not None:
-            self.tasks[selected_index] = task_data
-        else:
-            self.tasks.append(task_data)
-        return self.save_tasks(self.tasks)
+        try:
+            if selected_index is not None:
+                self.tasks[selected_index] = task_data
+            else:
+                self.tasks.append(task_data)
+            return self.save_tasks(self.tasks)
+        except Exception as e:
+            st.error(f"Error adding/updating task: {str(e)}")
+            return False
     
     def delete_task(self, index):
-        if 0 <= index < len(self.tasks):
-            del self.tasks[index]
-            return self.save_tasks(self.tasks)
-        return False
+        try:
+            if 0 <= index < len(self.tasks):
+                del self.tasks[index]
+                return self.save_tasks(self.tasks)
+            return False
+        except Exception as e:
+            st.error(f"Error deleting task: {str(e)}")
+            return False
 
 def main():
     st.set_page_config(page_title="Enhanced Task Manager", layout="wide")
@@ -87,11 +149,13 @@ def main():
     
     task_manager = st.session_state.task_manager
     
-    # Auto-refresh every 30 seconds for real-time sync
-    st.sidebar.info("🔄 Auto-syncing with cloud...")
-    
-    # Rest of your existing UI code remains the same...
-    # [Include all the UI code from the previous working version]
+    # Debug info (remove in production)
+    with st.sidebar:
+        st.header("Debug Info")
+        st.write(f"Tasks loaded: {len(task_manager.tasks)}")
+        if st.button("Reload Data"):
+            st.session_state.task_manager.tasks = st.session_state.task_manager.load_tasks()
+            st.rerun()
     
     # Sidebar for filters
     with st.sidebar:
@@ -101,11 +165,6 @@ def main():
             options=list(CATEGORIES.keys()),
             index=list(CATEGORIES.keys()).index(st.session_state.current_category)
         )
-        
-        # Refresh button
-        if st.button("🔄 Refresh Data"):
-            st.session_state.task_manager.tasks = st.session_state.task_manager.load_tasks()
-            st.rerun()
         
         # Category statistics
         st.subheader("Task Statistics")
@@ -120,7 +179,6 @@ def main():
                        unsafe_allow_html=True)
         
         st.markdown(f"**Total Tasks: {len(task_manager.tasks)}**")
-        st.markdown(f"**Last Sync: {datetime.now().strftime('%H:%M:%S')}**")
 
     # Main content area
     st.header("Task Form")
@@ -147,8 +205,8 @@ def main():
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if st.button("➕ Add Task" if st.session_state.selected_index is None else "✅ Update Task", 
-                    use_container_width=True):
+        button_label = "✅ Update Task" if st.session_state.selected_index is not None else "➕ Add Task"
+        if st.button(button_label, use_container_width=True):
             if not description.strip():
                 st.error("Please enter a description.")
             else:
@@ -200,7 +258,6 @@ def main():
     ]
     
     if filtered_tasks:
-        # Display tasks with edit buttons
         for i, task in enumerate(filtered_tasks):
             task_key = f"{task['description']}_{task['building']}_{task['category']}"
             
