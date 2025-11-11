@@ -25,7 +25,6 @@ BUILDINGS = [
     "NHQ", "NEC", "SCU", "RO"
 ]
 
-
 # --- GOOGLE SHEETS MANAGER ---
 class GoogleSheetsManager:
     def __init__(self):
@@ -119,7 +118,6 @@ class GoogleSheetsManager:
             st.error(f"Error deleting task: {e}")
             return False
 
-
 # --- HELPER FUNCTIONS ---
 def clear_form():
     st.session_state.form_description = ''
@@ -130,10 +128,9 @@ def clear_form():
     st.session_state.edit_mode = False
     st.session_state.selected_task = None
 
-
 # --- MAIN APP ---
 def main():
-    st.set_page_config(page_title="Facilities Task Sync", layout="wide")
+    st.set_page_config(page_title="Beldiev Original Board Operators", layout="wide")
 
     # Custom CSS styling
     st.markdown("""
@@ -154,9 +151,6 @@ def main():
             font-weight: 500;
             padding: 0.5em 1em;
         }
-        .stTextInput input, .stSelectbox div[data-baseweb="select"] {
-            border-radius: 6px;
-        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -174,10 +168,10 @@ def main():
 
     tm = st.session_state.task_manager
 
-    st.title("🏗️ Facilities Task Sync Dashboard")
-    st.caption("Seamless desktop ↔ mobile task synchronization for site engineers")
+    st.title("🧠 Beldiev Original Board Operators")
+    st.caption("Efficient, synchronized task management for operations teams")
 
-    # Sidebar - Filters and Stats
+    # Sidebar
     with st.sidebar:
         st.subheader("📂 Filter by Category")
         st.session_state.current_category = st.selectbox(
@@ -202,7 +196,7 @@ def main():
             st.success("Data refreshed!")
             st.rerun()
 
-    # --- TASK ENTRY FORM ---
+    # --- TASK FORM ---
     st.header("📝 Task Entry / Edit Form")
     col1, col2 = st.columns(2)
 
@@ -216,12 +210,13 @@ def main():
         category = st.selectbox("Category", [c for c in CATEGORIES if c != "All"],
                                 index=list(CATEGORIES.keys()).index(st.session_state.form_category))
 
-    colA, colB, colC = st.columns(3)
+    # Buttons: Add, Update, Delete
+    colA, colB, colC, colD = st.columns(4)
     with colA:
         if st.session_state.edit_mode:
             if st.button("💾 Update Task", use_container_width=True):
                 if not description.strip():
-                    st.error("Description is required.")
+                    st.error("Description required.")
                 else:
                     task = {
                         "description": description.strip(),
@@ -240,7 +235,7 @@ def main():
         else:
             if st.button("➕ Add Task", use_container_width=True):
                 if not description.strip():
-                    st.error("Description is required.")
+                    st.error("Description required.")
                 else:
                     task = {
                         "description": description.strip(),
@@ -257,22 +252,30 @@ def main():
                         st.rerun()
     with colB:
         if st.session_state.edit_mode:
+            if st.button("🗑️ Delete Task", use_container_width=True):
+                idx = st.session_state.selected_task
+                if idx is not None and tm.delete_task(idx):
+                    st.success("Task deleted!")
+                    clear_form()
+                    st.rerun()
+    with colC:
+        if st.session_state.edit_mode:
             if st.button("❌ Cancel Edit", use_container_width=True):
                 clear_form()
                 st.rerun()
-    with colC:
+    with colD:
         if st.button("🧹 Clear Form", use_container_width=True):
             clear_form()
             st.rerun()
 
-    # --- TASK LIST DISPLAY ---
+    # --- TASK LIST ---
     st.header("📋 Current Task List")
     filtered = [
         t for t in tm.tasks if st.session_state.current_category == "All"
-                               or t["category"] == st.session_state.current_category
+        or t["category"] == st.session_state.current_category
     ]
     if not filtered:
-        st.info("No tasks found in this category.")
+        st.info("No tasks found.")
         return
 
     for i, t in enumerate(filtered):
@@ -298,13 +301,10 @@ def main():
             with cols[4]:
                 st.write(t["comments"] or "-")
             with cols[5]:
-                st.markdown(
-                    f"<span style='background:{color};padding:3px 10px;border-radius:4px;'>{t['category']}</span>",
-                    unsafe_allow_html=True)
+                st.markdown(f"<span style='background:{color};padding:3px 10px;border-radius:4px;'>{t['category']}</span>", unsafe_allow_html=True)
             with cols[6]:
                 st.write(t["last_updated"])
         st.divider()
-
 
 # --- RUN APP ---
 if __name__ == "__main__":
